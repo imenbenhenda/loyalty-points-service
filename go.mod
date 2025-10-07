@@ -1,5 +1,5 @@
 module loyalty-points-service
 
-go 1.24.5
+go 1.21
 
 require github.com/gorilla/mux v1.8.1
