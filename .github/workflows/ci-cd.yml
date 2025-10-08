@@ -1,0 +1,104 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  IMAGE_NAME: loyalty-points-service
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+jobs:
+  # JOB 1: Tests et qualité de code
+  test-and-quality:
+    name: Test and Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run unit tests
+      run: go test -v ./...
+
+    - name: Run security scan (SAST)
+      run: |
+        # Install gosec - scanner de sécurité pour Go
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -exclude-dir=tests ./...
+
+    - name: Code linting
+      run: |
+        # Install golangci-lint pour la qualité de code
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+        golangci-lint run ./...
+
+  # JOB 2: Build Docker
+  build-docker:
+    name: Build Docker Image
+    needs: test-and-quality
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: |
+        docker build -t $IMAGE_NAME .
+
+    - name: Test Docker image
+      run: |
+        docker run -d --name test-container -p 8081:8081 $IMAGE_NAME
+        sleep 5
+        docker ps
+        curl -f http://localhost:8081/api/v1/health || exit 1
+        docker stop test-container
+
+  # JOB 3: Publish to Docker Hub
+  publish-docker:
+    name: Publish to Docker Hub
+    needs: build-docker
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ secrets.DOCKER_USERNAME }}/loyalty-points-service:latest
+          ${{ secrets.DOCKER_USERNAME }}/loyalty-points-service:${{ github.sha }}
+
+    - name: Verify pushed image
+      run: |
+        echo "Image published to: ${{ secrets.DOCKER_USERNAME }}/loyalty-points-service:latest"
