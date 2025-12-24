@@ -34,14 +34,16 @@ jobs:
         # Test que le code compile d'abord
         go build ./cmd/api
         echo "✅ Code compiles successfully"
-        # Exécute les tests si ils existent
+        # Exécute les tests
         go test -v ./... || echo "⚠️ Some tests may have failed but continuing..."
 
+    # --- MODIFICATION ICI : VRAI SCANNER DE SÉCURITÉ (SAST) ---
     - name: Run security scan (SAST)
-      run: |
-        echo "🔒 Basic security checks passed"
-        echo "✅ Dependencies verified"
-        echo "✅ Code compilation successful"
+      uses: securego/gosec@master
+      with:
+        # Scan récursif de tout le dossier
+        args: ./...
+    # ----------------------------------------------------------
 
     - name: Code linting
       run: |
